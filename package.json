@@ -1,0 +1,15 @@
+{
+  "name": "esp32-robot-relay",
+  "version": "1.0.0",
+  "description": "WebSocket relay server for ESP32 robot control",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
