@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ESP32 Robot Control</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg: #050a0e;
+    --panel: #0a1520;
+    --panel2: #0d1c2e;
+    --border: #1a3a5c;
+    --accent: #00e5ff;
+    --accent2: #00ff88;
+    --warn: #ff6b35;
+    --danger: #ff1744;
+    --text: #b0d4e8;
+    --dim: #3a6080;
+    --glow: 0 0 12px rgba(0,229,255,0.5);
+    --glow2: 0 0 12px rgba(0,255,136,0.5);
+    --glow-warn: 0 0 12px rgba(255,107,53,0.6);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+    background-image:
+      radial-gradient(ellipse at 10% 20%, rgba(0,229,255,0.04) 0%, transparent 60%),
+      radial-gradient(ellipse at 90% 80%, rgba(0,255,136,0.03) 0%, transparent 60%);
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.07) 3px, rgba(0,0,0,0.07) 4px);
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  /* ── HEADER ── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(90deg, rgba(0,229,255,0.06) 0%, transparent 60%);
+    position: relative;
+  }
+  header::after { content:''; position:absolute; bottom:-1px; left:0; width:40%; height:1px; background:linear-gradient(90deg,var(--accent),transparent); }
+  .logo { display:flex; align-items:center; gap:12px; }
+  .logo-icon { width:36px; height:36px; border:2px solid var(--accent); border-radius:4px; display:flex; align-items:center; justify-content:center; box-shadow:var(--glow); animation:pulse-border 2s ease-in-out infinite; }
+  @keyframes pulse-border { 0%,100%{border-color:var(--accent);box-shadow:var(--glow)}50%{border-color:var(--accent2);box-shadow:var(--glow2)} }
+  .logo-icon svg { width:20px; height:20px; fill:var(--accent); }
+  .logo h1 { font-family:'Orbitron',sans-serif; font-size:1.05rem; font-weight:900; letter-spacing:0.15em; color:#fff; text-shadow:0 0 20px rgba(0,229,255,0.6); }
+  .logo span { color:var(--accent); font-size:0.65rem; letter-spacing:0.2em; display:block; }
+  .header-right { display:flex; align-items:center; gap:16px; }
+  .live-clock { font-size:0.75rem; color:var(--dim); letter-spacing:0.1em; }
+
+  /* Status pills */
+  .status-pill {
+    display:flex; align-items:center; gap:7px;
+    padding:5px 12px;
+    border:1px solid var(--border);
+    border-radius:3px;
+    background:var(--panel2);
+    font-size:0.68rem;
+    letter-spacing:0.08em;
+  }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--danger); box-shadow:0 0 8px var(--danger); transition:all 0.3s; }
+  .dot.on { background:var(--accent2); box-shadow:0 0 8px var(--accent2); animation:blink 2s ease-in-out infinite; }
+  .dot.warn { background:var(--warn); box-shadow:0 0 8px var(--warn); }
+  @keyframes blink { 0%,100%{opacity:1}50%{opacity:0.5} }
+
+  /* ── CONNECTION MODAL / BANNER ── */
+  #conn-banner {
+    background: linear-gradient(90deg, rgba(0,229,255,0.05), transparent);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 28px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .cb-label { font-family:'Orbitron',sans-serif; font-size:0.58rem; letter-spacing:0.18em; color:var(--accent); white-space:nowrap; }
+  .cb-input {
+    background:var(--panel2); border:1px solid var(--border); border-radius:3px;
+    padding:6px 10px; color:#fff; font-family:'Share Tech Mono',monospace;
+    font-size:0.72rem; outline:none; width:280px; transition:border-color 0.2s;
+  }
+  .cb-input:focus { border-color:var(--accent); }
+  .cb-secret {
+    background:var(--panel2); border:1px solid var(--border); border-radius:3px;
+    padding:6px 10px; color:#fff; font-family:'Share Tech Mono',monospace;
+    font-size:0.72rem; outline:none; width:160px; transition:border-color 0.2s;
+  }
+  .cb-secret:focus { border-color:var(--accent); }
+  .cb-btn {
+    padding:6px 16px;
+    border:1px solid var(--accent); border-radius:3px;
+    background:transparent; color:var(--accent);
+    font-family:'Orbitron',sans-serif; font-size:0.58rem;
+    letter-spacing:0.12em; cursor:pointer; transition:all 0.15s; white-space:nowrap;
+  }
+  .cb-btn:hover { background:rgba(0,229,255,0.1); box-shadow:var(--glow); }
+  .cb-btn.disconnect { border-color:var(--danger); color:var(--danger); }
+  .cb-btn.disconnect:hover { background:rgba(255,23,68,0.1); }
+
+  /* ── MAIN GRID ── */
+  main {
+    display: grid;
+    grid-template-columns: 280px 1fr 280px;
+    gap: 14px;
+    padding: 16px 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  /* ── PANEL ── */
+  .panel {
+    background:var(--panel); border:1px solid var(--border); border-radius:4px;
+    padding:16px; position:relative; overflow:hidden;
+    animation: sweep 0.35s ease both;
+  }
+  .panel::before { content:''; position:absolute; top:0; left:0; right:0; height:1px; background:linear-gradient(90deg,transparent,var(--accent),transparent); opacity:0.4; }
+  .panel-title { font-family:'Orbitron',sans-serif; font-size:0.62rem; letter-spacing:0.22em; color:var(--accent); text-transform:uppercase; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+  .panel-title::before { content:''; width:3px; height:12px; background:var(--accent); box-shadow:var(--glow); }
+  @keyframes sweep { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+
+  /* ── MOTOR PANELS ── */
+  .motor-block { background:var(--panel2); border:1px solid var(--border); border-radius:3px; padding:12px; margin-bottom:12px; }
+  .motor-label { font-family:'Orbitron',sans-serif; font-size:0.6rem; letter-spacing:0.18em; color:var(--accent2); margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; }
+  .motor-dir { font-size:0.65rem; color:var(--dim); transition:color 0.2s; }
+  .motor-dir.fwd { color:var(--accent2); }
+  .motor-dir.rev { color:var(--warn); }
+  .speed-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .speed-label { font-size:0.65rem; color:var(--dim); width:28px; }
+  input[type=range] { flex:1; -webkit-appearance:none; height:4px; background:linear-gradient(90deg,var(--accent2) var(--val,0%),var(--border) var(--val,0%)); border-radius:2px; outline:none; cursor:pointer; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:var(--accent2); box-shadow:0 0 8px var(--accent2); border:2px solid var(--bg); cursor:pointer; transition:transform 0.15s; }
+  input[type=range]::-webkit-slider-thumb:hover { transform:scale(1.3); }
+  .speed-val { font-size:0.75rem; color:#fff; width:32px; text-align:right; }
+  .speed-bar-bg { background:var(--border); border-radius:2px; height:3px; overflow:hidden; }
+  .speed-bar-fill { height:100%; width:0%; background:linear-gradient(90deg,var(--accent2),var(--accent)); border-radius:2px; transition:width 0.2s; box-shadow:0 0 6px rgba(0,255,136,0.6); }
+  .motor-btns { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:10px; }
+  .mbtn { padding:7px 4px; background:var(--panel); border:1px solid var(--border); border-radius:3px; color:var(--dim); font-family:'Share Tech Mono',monospace; font-size:0.65rem; letter-spacing:0.06em; cursor:pointer; text-align:center; transition:all 0.15s; user-select:none; }
+  .mbtn:hover { border-color:var(--accent2); color:var(--accent2); background:rgba(0,255,136,0.05); }
+  .mbtn.active { background:rgba(0,255,136,0.15); border-color:var(--accent2); color:var(--accent2); box-shadow:var(--glow2); }
+  .mbtn.rev-btn:hover { border-color:var(--warn); color:var(--warn); background:rgba(255,107,53,0.06); }
+  .mbtn.rev-btn.active { background:rgba(255,107,53,0.15); border-color:var(--warn); color:var(--warn); box-shadow:var(--glow-warn); }
+  .mode-toggle { display:flex; gap:6px; }
+  .mode-btn { flex:1; padding:7px; background:var(--panel2); border:1px solid var(--border); border-radius:3px; color:var(--dim); font-family:'Orbitron',sans-serif; font-size:0.55rem; letter-spacing:0.1em; cursor:pointer; text-align:center; transition:all 0.15s; }
+  .mode-btn.active { border-color:var(--accent); color:var(--accent); background:rgba(0,229,255,0.08); box-shadow:var(--glow); }
+
+  /* ── CENTER ── */
+  .center-col { display:flex; flex-direction:column; gap:14px; align-items:center; }
+  .dpad-panel { width:100%; display:flex; flex-direction:column; align-items:center; gap:16px; }
+  .global-speed { width:100%; background:var(--panel2); border:1px solid var(--border); border-radius:4px; padding:12px 14px; }
+  .gs-label { font-family:'Orbitron',sans-serif; font-size:0.58rem; letter-spacing:0.18em; color:var(--accent); margin-bottom:10px; display:flex; justify-content:space-between; align-items:center; }
+  .gs-val { font-size:1.1rem; color:#fff; font-weight:700; }
+  .presets { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+  .preset-btn { padding:7px 4px; background:var(--panel); border:1px solid var(--border); border-radius:3px; color:var(--dim); font-family:'Orbitron',sans-serif; font-size:0.55rem; letter-spacing:0.1em; cursor:pointer; text-align:center; transition:all 0.15s; }
+  .preset-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .dpad { display:grid; grid-template-columns:72px 72px 72px; grid-template-rows:72px 72px 72px; gap:6px; }
+  .dpad-btn { background:var(--panel2); border:1px solid var(--border); border-radius:5px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.12s; user-select:none; position:relative; overflow:hidden; }
+  .dpad-btn::after { content:''; position:absolute; inset:0; background:radial-gradient(circle at center,rgba(0,229,255,0.2),transparent 70%); opacity:0; transition:opacity 0.15s; }
+  .dpad-btn:hover { border-color:var(--accent); }
+  .dpad-btn:hover::after { opacity:1; }
+  .dpad-btn:active,.dpad-btn.pressed { background:rgba(0,229,255,0.12); border-color:var(--accent); box-shadow:var(--glow); transform:scale(0.94); }
+  .dpad-btn:active::after,.dpad-btn.pressed::after { opacity:1; }
+  .dpad-btn svg { width:26px; height:26px; fill:var(--dim); transition:fill 0.12s; }
+  .dpad-btn:hover svg,.dpad-btn.pressed svg { fill:var(--accent); }
+  .dpad-center { background:rgba(255,23,68,0.08); border-color:rgba(255,23,68,0.3); }
+  .dpad-center svg { fill:var(--danger); opacity:0.7; }
+  .dpad-center:hover { border-color:var(--danger); background:rgba(255,23,68,0.18); }
+  .dpad-center:hover svg { fill:var(--danger); opacity:1; }
+  .dpad-empty { background:transparent; border:none; pointer-events:none; }
+  .e-stop { width:100%; padding:13px; background:rgba(255,23,68,0.08); border:1px solid rgba(255,23,68,0.4); border-radius:4px; color:var(--danger); font-family:'Orbitron',sans-serif; font-size:0.72rem; font-weight:700; letter-spacing:0.28em; cursor:pointer; text-align:center; transition:all 0.15s; text-transform:uppercase; }
+  .e-stop:hover { background:rgba(255,23,68,0.2); border-color:var(--danger); box-shadow:0 0 20px rgba(255,23,68,0.4); text-shadow:0 0 10px var(--danger); }
+  .e-stop:active { transform:scale(0.97); }
+  .kbd-hint { display:flex; flex-wrap:wrap; gap:6px; padding:10px; background:var(--panel2); border:1px solid var(--border); border-radius:3px; }
+  .kbd { padding:3px 8px; border:1px solid var(--border); border-radius:2px; font-size:0.6rem; color:var(--dim); background:var(--panel); letter-spacing:0.06em; white-space:nowrap; }
+  .kbd b { color:var(--accent); }
+
+  /* ── RIGHT ── */
+  .telem-row { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:var(--panel2); border:1px solid var(--border); border-radius:3px; font-size:0.7rem; margin-bottom:6px; }
+  .telem-key { color:var(--dim); letter-spacing:0.08em; }
+  .telem-val { color:#fff; font-size:0.8rem; text-align:right; }
+  .telem-val.ok { color:var(--accent2); }
+  .telem-val.warn { color:var(--warn); }
+  .telem-val.err { color:var(--danger); }
+  .log-box { background:#030a0e; border:1px solid var(--border); border-radius:3px; padding:10px; height:160px; overflow-y:auto; font-size:0.65rem; line-height:1.6; color:var(--dim); }
+  .log-box::-webkit-scrollbar { width:4px; }
+  .log-box::-webkit-scrollbar-track { background:transparent; }
+  .log-box::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .log-entry { margin-bottom:2px; }
+  .log-entry span { color:var(--accent); }
+  .log-entry.cmd span { color:var(--accent2); }
+  .log-entry.err span { color:var(--danger); }
+  .log-entry.sys span { color:var(--warn); }
+
+  @media(max-width:900px) { main{grid-template-columns:1fr 1fr} .center-col{grid-column:1/-1;order:-1} }
+  @media(max-width:580px) { main{grid-template-columns:1fr;padding:10px} }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm-1 5h2v4h3l-4 4-4-4h3zm0 10h2v2h-2z"/></svg>
+    </div>
+    <div>
+      <h1>ROBO&#8202;CTRL</h1>
+      <span>ESP32 // L298N DUAL DRIVE // CLOUD RELAY</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="live-clock" id="clock">00:00:00</div>
+    <div class="status-pill">
+      <div class="dot" id="srv-dot"></div>
+      <span id="srv-label">SERVER</span>
+    </div>
+    <div class="status-pill">
+      <div class="dot" id="bot-dot"></div>
+      <span id="bot-label">ROBOT</span>
+    </div>
+  </div>
+</header>
+
+<!-- CONNECTION BANNER -->
+<div id="conn-banner">
+  <span class="cb-label">SERVER URL</span>
+  <input class="cb-input" id="server-url" type="text" placeholder="wss://your-app.onrender.com" value=""/>
+  <span class="cb-label">SECRET</span>
+  <input class="cb-secret" id="server-secret" type="password" placeholder="esp32robot123" value="esp32robot123"/>
+  <button class="cb-btn" id="conn-btn" onclick="toggleConnect()">CONNECT</button>
+</div>
+
+<main>
+
+  <!-- LEFT: MOTORS -->
+  <div class="panel" style="animation-delay:0.05s">
+    <div class="panel-title">Motor A — Left</div>
+    <div class="motor-block">
+      <div class="motor-label">L298N — CH A <span class="motor-dir" id="ma-dir">IDLE</span></div>
+      <div class="speed-row">
+        <span class="speed-label">PWM</span>
+        <input type="range" min="0" max="255" value="150" id="ma-speed" oninput="updateMotorSpeed('A',this.value)" style="--val:59%"/>
+        <span class="speed-val" id="ma-val">150</span>
+      </div>
+      <div class="speed-bar-bg"><div class="speed-bar-fill" id="ma-bar" style="width:59%"></div></div>
+      <div class="motor-btns">
+        <button class="mbtn" onclick="setMotor('A','FWD')" id="ma-fwd">▲ FWD</button>
+        <button class="mbtn" onclick="setMotor('A','STP')" id="ma-stp">■ STP</button>
+        <button class="mbtn rev-btn" onclick="setMotor('A','REV')" id="ma-rev">▼ REV</button>
+      </div>
+    </div>
+
+    <div class="panel-title">Motor B — Right</div>
+    <div class="motor-block">
+      <div class="motor-label">L298N — CH B <span class="motor-dir" id="mb-dir">IDLE</span></div>
+      <div class="speed-row">
+        <span class="speed-label">PWM</span>
+        <input type="range" min="0" max="255" value="150" id="mb-speed" oninput="updateMotorSpeed('B',this.value)" style="--val:59%"/>
+        <span class="speed-val" id="mb-val">150</span>
+      </div>
+      <div class="speed-bar-bg"><div class="speed-bar-fill" id="mb-bar" style="width:59%"></div></div>
+      <div class="motor-btns">
+        <button class="mbtn" onclick="setMotor('B','FWD')" id="mb-fwd">▲ FWD</button>
+        <button class="mbtn" onclick="setMotor('B','STP')" id="mb-stp">■ STP</button>
+        <button class="mbtn rev-btn" onclick="setMotor('B','REV')" id="mb-rev">▼ REV</button>
+      </div>
+    </div>
+
+    <div class="panel-title">Control Mode</div>
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="mode-sync" onclick="setMode('sync')">SYNC</button>
+      <button class="mode-btn" id="mode-ind" onclick="setMode('independent')">INDEPENDENT</button>
+    </div>
+  </div>
+
+  <!-- CENTER: D-PAD -->
+  <div class="center-col" style="animation-delay:0.1s">
+    <div class="panel dpad-panel" style="width:100%">
+      <div class="panel-title">Directional Control</div>
+      <div class="global-speed">
+        <div class="gs-label">GLOBAL SPEED <span class="gs-val" id="gs-val">150</span></div>
+        <div class="speed-row">
+          <span class="speed-label">0</span>
+          <input type="range" min="0" max="255" value="150" id="global-speed" oninput="updateGlobalSpeed(this.value)" style="--val:59%;height:6px"/>
+          <span class="speed-label" style="text-align:right">255</span>
+        </div>
+        <div class="presets">
+          <button class="preset-btn" onclick="setPreset(64)">25%</button>
+          <button class="preset-btn" onclick="setPreset(128)">50%</button>
+          <button class="preset-btn" onclick="setPreset(192)">75%</button>
+          <button class="preset-btn" onclick="setPreset(255)">100%</button>
+        </div>
+      </div>
+      <div class="dpad">
+        <div class="dpad-empty"></div>
+        <div class="dpad-btn" id="btn-fwd" onmousedown="dpadPress('FWD')" onmouseup="dpadRelease()" onmouseleave="dpadRelease()" ontouchstart="dpadPress('FWD')" ontouchend="dpadRelease()">
+          <svg viewBox="0 0 24 24"><path d="M12 4l-8 8h5v8h6v-8h5z"/></svg>
+        </div>
+        <div class="dpad-empty"></div>
+        <div class="dpad-btn" id="btn-left" onmousedown="dpadPress('LEFT')" onmouseup="dpadRelease()" onmouseleave="dpadRelease()" ontouchstart="dpadPress('LEFT')" ontouchend="dpadRelease()">
+          <svg viewBox="0 0 24 24"><path d="M20 12l-8-8v5H4v6h8v5z"/></svg>
+        </div>
+        <div class="dpad-btn dpad-center" onmousedown="emergencyStop()" ontouchstart="emergencyStop()">
+          <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        </div>
+        <div class="dpad-btn" id="btn-right" onmousedown="dpadPress('RIGHT')" onmouseup="dpadRelease()" onmouseleave="dpadRelease()" ontouchstart="dpadPress('RIGHT')" ontouchend="dpadRelease()">
+          <svg viewBox="0 0 24 24"><path d="M4 12l8 8v-5h8v-6h-8V4z"/></svg>
+        </div>
+        <div class="dpad-empty"></div>
+        <div class="dpad-btn" id="btn-bwd" onmousedown="dpadPress('BWD')" onmouseup="dpadRelease()" onmouseleave="dpadRelease()" ontouchstart="dpadPress('BWD')" ontouchend="dpadRelease()">
+          <svg viewBox="0 0 24 24"><path d="M12 20l8-8h-5V4H9v8H4z"/></svg>
+        </div>
+        <div class="dpad-empty"></div>
+      </div>
+      <button class="e-stop" onclick="emergencyStop()">⬛ EMERGENCY STOP</button>
+      <div class="kbd-hint">
+        <div class="kbd"><b>W</b> Fwd</div>
+        <div class="kbd"><b>S</b> Bwd</div>
+        <div class="kbd"><b>A</b> Left</div>
+        <div class="kbd"><b>D</b> Right</div>
+        <div class="kbd"><b>Space</b> Stop</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: TELEMETRY + LOG -->
+  <div class="panel" style="animation-delay:0.15s">
+    <div class="panel-title">Telemetry</div>
+    <div class="telem-row"><span class="telem-key">SERVER</span><span class="telem-val" id="tl-srv">OFFLINE</span></div>
+    <div class="telem-row"><span class="telem-key">ROBOT</span><span class="telem-val err" id="tl-robot">OFFLINE</span></div>
+    <div class="telem-row"><span class="telem-key">DIRECTION</span><span class="telem-val" id="tl-dir">—</span></div>
+    <div class="telem-row"><span class="telem-key">MOTOR A PWM</span><span class="telem-val" id="tl-ma">150</span></div>
+    <div class="telem-row"><span class="telem-key">MOTOR B PWM</span><span class="telem-val" id="tl-mb">150</span></div>
+    <div class="telem-row"><span class="telem-key">CMDS SENT</span><span class="telem-val" id="tl-cmds">0</span></div>
+    <div class="telem-row"><span class="telem-key">PING</span><span class="telem-val" id="tl-lat">—</span></div>
+
+    <div class="panel-title" style="margin-top:8px">Event Log</div>
+    <div class="log-box" id="log"></div>
+  </div>
+
+</main>
+
+<script>
+// ── STATE ──
+let ws = null;
+let serverConnected = false;
+let robotOnline = false;
+let cmdCount = 0;
+let mode = 'sync';
+const motorState = { A: { speed: 150, dir: 'STP' }, B: { speed: 150, dir: 'STP' } };
+let pingInterval = null;
+let pingTs = 0;
+
+// ── CLOCK ──
+setInterval(() => {
+  const n = new Date();
+  document.getElementById('clock').textContent =
+    [n.getHours(),n.getMinutes(),n.getSeconds()].map(v=>String(v).padStart(2,'0')).join(':');
+}, 1000);
+
+// ── LOG ──
+function log(msg, type='') {
+  const box = document.getElementById('log');
+  const ts = new Date().toLocaleTimeString('en',{hour12:false});
+  const el = document.createElement('div');
+  el.className = 'log-entry ' + type;
+  el.innerHTML = `<span>[${ts}]</span> ${msg}`;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  while(box.children.length > 100) box.removeChild(box.firstChild);
+}
+
+// ── UI STATE ──
+function setServerStatus(online) {
+  serverConnected = online;
+  document.getElementById('srv-dot').className = 'dot' + (online?' on':'');
+  document.getElementById('srv-label').textContent = online ? 'SERVER ✓' : 'SERVER';
+  document.getElementById('tl-srv').textContent = online ? 'ONLINE' : 'OFFLINE';
+  document.getElementById('tl-srv').className = 'telem-val ' + (online?'ok':'err');
+  document.getElementById('conn-btn').textContent = online ? 'DISCONNECT' : 'CONNECT';
+  document.getElementById('conn-btn').className = 'cb-btn' + (online?' disconnect':'');
+}
+
+function setRobotStatus(online) {
+  robotOnline = online;
+  document.getElementById('bot-dot').className = 'dot' + (online?' on':' warn');
+  document.getElementById('bot-label').textContent = online ? 'ROBOT ✓' : 'ROBOT';
+  document.getElementById('tl-robot').textContent = online ? 'ONLINE' : 'WAITING...';
+  document.getElementById('tl-robot').className = 'telem-val ' + (online?'ok':'warn');
+}
+
+// ── WEBSOCKET ──
+function toggleConnect() {
+  if (serverConnected) { if(ws) ws.close(); return; }
+  const url = document.getElementById('server-url').value.trim();
+  const secret = document.getElementById('server-secret').value.trim();
+  if (!url) { log('Enter your Render server URL', 'err'); return; }
+
+  log(`Connecting to ${url}…`);
+  try {
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      // Register as dashboard
+      ws.send(JSON.stringify({ role: 'dashboard', secret }));
+    };
+
+    ws.onmessage = (e) => {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { log(`← ${e.data}`); return; }
+
+      if (msg.type === 'registered') {
+        setServerStatus(true);
+        log('Registered as dashboard with server', 'cmd');
+        startPing();
+        return;
+      }
+      if (msg.type === 'robot_status') {
+        setRobotStatus(msg.connected);
+        log(msg.connected ? '🤖 Robot connected' : '⚠ Robot disconnected', msg.connected?'cmd':'err');
+        return;
+      }
+      if (msg.type === 'pong') {
+        const lat = Date.now() - pingTs;
+        document.getElementById('tl-lat').textContent = lat + ' ms';
+        return;
+      }
+      if (msg.error) { log('⚠ ' + msg.error, 'err'); return; }
+      // Other telemetry from robot
+      log(`← ${e.data}`);
+    };
+
+    ws.onclose = () => {
+      setServerStatus(false);
+      setRobotStatus(false);
+      stopPing();
+      log('Disconnected from server', 'err');
+      ws = null;
+    };
+
+    ws.onerror = () => log('WebSocket error', 'err');
+  } catch(e) { log('Failed: ' + e.message, 'err'); }
+}
+
+function startPing() {
+  stopPing();
+  pingInterval = setInterval(() => {
+    if (ws && ws.readyState === 1) {
+      pingTs = Date.now();
+      ws.send(JSON.stringify({ type: 'ping' }));
+    }
+  }, 3000);
+}
+function stopPing() { if(pingInterval) clearInterval(pingInterval); }
+
+// ── SEND ──
+function send(cmd) {
+  if (!serverConnected) { log('Not connected to server', 'err'); return; }
+  if (!robotOnline) { log('Robot not online', 'err'); return; }
+  log(`→ ${JSON.stringify(cmd)}`, 'cmd');
+  cmdCount++;
+  document.getElementById('tl-cmds').textContent = cmdCount;
+  ws.send(JSON.stringify(cmd));
+}
+
+// ── MOTOR SPEED ──
+function updateMotorSpeed(motor, val) {
+  val = parseInt(val);
+  motorState[motor].speed = val;
+  const pct = (val/255*100).toFixed(0)+'%';
+  const m = motor.toLowerCase();
+  document.getElementById('m'+m+'-val').textContent = val;
+  document.getElementById('m'+m+'-bar').style.width = pct;
+  document.getElementById('m'+m+'-speed').style.setProperty('--val', pct);
+  document.getElementById('tl-m'+m).textContent = val;
+  if (mode === 'sync') {
+    const o = motor==='A'?'B':'A', om=o.toLowerCase();
+    motorState[o].speed = val;
+    document.getElementById('m'+om+'-val').textContent = val;
+    document.getElementById('m'+om+'-bar').style.width = pct;
+    document.getElementById('m'+om+'-speed').value = val;
+    document.getElementById('m'+om+'-speed').style.setProperty('--val', pct);
+    document.getElementById('tl-m'+om).textContent = val;
+  }
+  send({ cmd:'SPEED', motor, value:val });
+}
+
+function updateGlobalSpeed(val) {
+  val = parseInt(val);
+  document.getElementById('gs-val').textContent = val;
+  document.getElementById('global-speed').style.setProperty('--val',(val/255*100).toFixed(0)+'%');
+  document.getElementById('ma-speed').value = val;
+  updateMotorSpeed('A', val);
+  if (mode==='independent') { document.getElementById('mb-speed').value=val; updateMotorSpeed('B',val); }
+}
+
+function setPreset(val) {
+  document.getElementById('global-speed').value = val;
+  updateGlobalSpeed(val);
+}
+
+// ── MOTOR DIR ──
+function setMotor(motor, dir) {
+  motorState[motor].dir = dir;
+  const m = motor.toLowerCase();
+  ['fwd','stp','rev'].forEach(d => document.getElementById('m'+m+'-'+d).classList.remove('active'));
+  const map={FWD:'fwd',STP:'stp',REV:'rev'};
+  if(map[dir]) document.getElementById('m'+m+'-'+map[dir]).classList.add('active');
+  const el = document.getElementById('m'+m+'-dir');
+  el.textContent = dir==='STP'?'IDLE':dir;
+  el.className = 'motor-dir'+(dir==='FWD'?' fwd':dir==='REV'?' rev':'');
+  send({ cmd:'MOTOR', motor, direction:dir, speed:motorState[motor].speed });
+}
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('mode-sync').classList.toggle('active', m==='sync');
+  document.getElementById('mode-ind').classList.toggle('active', m==='independent');
+  log(`Mode: ${m.toUpperCase()}`,'sys');
+}
+
+// ── D-PAD ──
+const DPAD_MAP = {
+  FWD:  { btnId:'btn-fwd',   label:'FORWARD',    ma:'FWD', mb:'FWD' },
+  BWD:  { btnId:'btn-bwd',   label:'BACKWARD',   ma:'REV', mb:'REV' },
+  LEFT: { btnId:'btn-left',  label:'TURN LEFT',  ma:'REV', mb:'FWD' },
+  RIGHT:{ btnId:'btn-right', label:'TURN RIGHT', ma:'FWD', mb:'REV' },
+};
+let currentDpad = null;
+
+function dpadPress(dir) {
+  if (currentDpad===dir) return;
+  clearDpad(); currentDpad = dir;
+  const d = DPAD_MAP[dir];
+  document.getElementById(d.btnId).classList.add('pressed');
+  document.getElementById('tl-dir').textContent = d.label;
+  setMotor('A',d.ma); setMotor('B',d.mb);
+  send({ cmd:'DRIVE', direction:dir, speedA:motorState.A.speed, speedB:motorState.B.speed });
+}
+
+function dpadRelease() {
+  if (!currentDpad) return;
+  clearDpad(); currentDpad = null;
+  document.getElementById('tl-dir').textContent = '—';
+  setMotor('A','STP'); setMotor('B','STP');
+  send({ cmd:'DRIVE', direction:'STOP', speedA:0, speedB:0 });
+}
+
+function clearDpad() {
+  Object.values(DPAD_MAP).forEach(d=>document.getElementById(d.btnId).classList.remove('pressed'));
+}
+
+function emergencyStop() {
+  currentDpad = null; clearDpad();
+  setMotor('A','STP'); setMotor('B','STP');
+  document.getElementById('tl-dir').textContent = 'E-STOP';
+  send({ cmd:'ESTOP' });
+  log('⚠ EMERGENCY STOP','err');
+}
+
+// ── KEYBOARD ──
+const KEY_MAP = { w:'FWD',W:'FWD',ArrowUp:'FWD',s:'BWD',S:'BWD',ArrowDown:'BWD',a:'LEFT',A:'LEFT',ArrowLeft:'LEFT',d:'RIGHT',D:'RIGHT',ArrowRight:'RIGHT' };
+const keysHeld = new Set();
+document.addEventListener('keydown', e => {
+  if (e.target.tagName==='INPUT') return;
+  if (e.key===' ') { e.preventDefault(); emergencyStop(); return; }
+  if (KEY_MAP[e.key] && !keysHeld.has(e.key)) { keysHeld.add(e.key); dpadPress(KEY_MAP[e.key]); }
+});
+document.addEventListener('keyup', e => {
+  if (KEY_MAP[e.key] && keysHeld.has(e.key)) {
+    keysHeld.delete(e.key);
+    if (keysHeld.size===0) dpadRelease();
+    else { const r=[...keysHeld].find(k=>KEY_MAP[k]); if(r) dpadPress(KEY_MAP[r]); }
+  }
+});
+
+log('Enter your Render WSS URL and connect.');
+log('ESP32 must also be connected to the relay.');
+</script>
+</body>
+</html>
